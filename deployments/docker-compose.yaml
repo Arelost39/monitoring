@@ -1,36 +1,44 @@
 version: "3.9"
 services:
-  postgres:
-    image: postgres:16
-    environment:
-      - POSTGRES_USER=stats
-      - POSTGRES_PASSWORD=stats
-      - POSTGRES_DB=stats
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
+  # postgres:
+  #   image: postgres:16
+  #   environment:
+  #     - POSTGRES_USER=stats
+  #     - POSTGRES_PASSWORD=stats
+  #     - POSTGRES_DB=stats
+  #   ports:
+  #     - "5432:5432"
+  #   volumes:
+  #     - postgres-data:/var/lib/postgresql/data
 
   redpanda:
-    image: redpandadata/redpanda:latest
+    image: docker.redpanda.com/redpandadata/redpanda:latest
     command:
       - redpanda
       - start
-      - --overprovisioned
+      - --mode
+      - dev-container          # базовый пресет
       - --smp
       - "1"
-      - --memory
-      - 1G
-      - --reserve-memory
-      - 0M
-      - --node-id
-      - "0"
-      - --check=false
-      - --advertise-kafka-addr
-      - redpanda:9092
+      # ↓ 2 строки решают проблему «127.0.0.1»
+      - --kafka-addr           # где брокер СЛУШАЕТ
+      - internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr # какие адреса ОТДАЁТ клиентам
+      - internal://redpanda:9092,external://localhost:19092
     ports:
-      - "9092:9092"   # Kafka
-      - "9644:9644"   # Admin API
+      - "19092:19092"          # Kafka для приложений на хосте
+      - "9644:9644"            # Admin API
+    networks: [default]
+
+  console:
+    image: docker.redpanda.com/redpandadata/console:latest
+    depends_on: [redpanda]
+    environment:
+      KAFKA_BROKERS: redpanda:9092       # внутри сети «docker»
+      REDPANDA_ADMIN_URLS: http://redpanda:9644
+    ports:
+      - "8080:8080"
+    networks: [default]
 
   victoria:
     image: victoriametrics/victoria-metrics:latest
@@ -49,16 +57,16 @@ services:
     depends_on:
       - victoria
 
-  gateway:
-    build:
-      context: .
-      dockerfile: Dockerfile.gateway
-    environment:
-      - KAFKA_BROKERS=redpanda:9092
-    ports:
-      - "8080:8080"
-    depends_on:
-      - redpanda
+  # gateway:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile.gateway
+  #   environment:
+  #     - KAFKA_BROKERS=redpanda:9092
+  #   ports:
+  #     - "8080:8080"
+  #   depends_on:
+  #     - redpanda
 
 volumes:
   postgres-data:
